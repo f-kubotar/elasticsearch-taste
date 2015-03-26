@@ -16,6 +16,7 @@ import org.codelibs.elasticsearch.taste.exception.NotFoundException;
 import org.codelibs.elasticsearch.taste.exception.OperationFailedException;
 import org.codelibs.elasticsearch.taste.exception.TasteException;
 import org.codelibs.elasticsearch.util.action.ListenerUtils.OnResponseListener;
+import org.codelibs.elasticsearch.util.action.ListenerUtils.OnFailureListener;
 import org.codelibs.elasticsearch.util.lang.StringUtils;
 import org.elasticsearch.action.get.GetResponse;
 import org.elasticsearch.action.search.SearchResponse;
@@ -64,7 +65,7 @@ public class TasteSearchRestAction extends BaseRestHandler {
 
     @Override
     protected void handleRequest(final RestRequest request,
-            final RestChannel channel, final Client client) {
+        final RestChannel channel, final Client client) {
 
         final Info info = new Info(request);
 
@@ -79,34 +80,44 @@ public class TasteSearchRestAction extends BaseRestHandler {
             return;
         }
 
-        final OnResponseListener<SearchResponse> responseListener = searchResponse -> {
-            final SearchHits hits = searchResponse.getHits();
-            if (hits.totalHits() == 0) {
-                onError(channel,
-                        new NotFoundException("No " + info.getIdField()
-                                + " data for " + systemId + " in "
-                                + info.getIdIndex() + "/" + info.getIdType()));
-                return;
-            }
-            final SearchHit hit = hits.getHits()[0];
-            final SearchHitField field = hit.field(info.getIdField());
-            final Number targetId = field.getValue();
-            if (targetId == null) {
-                onError(channel,
-                        new NotFoundException("No " + info.getIdField()
-                                + " for " + systemId + " in "
-                                + info.getIdIndex() + "/" + info.getIdType()));
-                return;
-            }
+        final OnResponseListener<SearchResponse> responseListener = new OnResponseListener<SearchResponse>() {
+            @Override
+            public void onResponse(Response searchResponse) {
+              final SearchHits hits = searchResponse.getHits();
+              if (hits.totalHits() == 0) {
+                  onError(channel,
+                          new NotFoundException("No " + info.getIdField()
+                                  + " data for " + systemId + " in "
+                                  + info.getIdIndex() + "/" + info.getIdType()));
+                  return;
+              }
+              final SearchHit hit = hits.getHits()[0];
+              final SearchHitField field = hit.field(info.getIdField());
+              final Number targetId = field.getValue();
+              if (targetId == null) {
+                  onError(channel,
+                          new NotFoundException("No " + info.getIdField()
+                                  + " for " + systemId + " in "
+                                  + info.getIdIndex() + "/" + info.getIdType()));
+                  return;
+              }
 
-            doSearchRequest(request, channel, client, info,
-                    targetId.longValue());
+              doSearchRequest(request, channel, client, info,
+                      targetId.longValue());
+            }
+        };
+
+        final OnFailureListener failureListener = new OnFailureListener() {
+            @Override
+            public void onFailure(Throwable t) {
+                onError(channel, t);
+            }
         };
         client.prepareSearch(info.getIdIndex()).setTypes(info.getIdType())
                 .setQuery(QueryBuilders.termQuery("system_id", systemId))
                 .addField(info.getIdField())
                 .addSort(info.getTimestampField(), SortOrder.DESC)
-                .execute(on(responseListener, t -> onError(channel, t)));
+                .execute(on(responseListener, failureListener));
 
     }
 
