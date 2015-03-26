@@ -87,19 +87,27 @@ public class PreferenceRequestHandler extends DefaultRequestHandler {
         rootObj.put(itemIdField, itemId);
         rootObj.put(valueField, value);
         rootObj.put(timestampField, timestamp);
-        final OnResponseListener<IndexResponse> responseListener = response -> {
-            chain.execute(params, listener, requestMap, paramMap);
-        };
-        final OnFailureListener failureListener = t -> {
-            final List<Throwable> errorList = getErrorList(paramMap);
-            if (errorList.size() >= maxRetryCount) {
-                listener.onError(t);
-            } else {
-                errorList.add(t);
-                doPreferenceIndexExists(params, listener, requestMap, paramMap,
-                        chain);
+        final OnResponseListener<SearchResponse> responseListener = new OnResponseListener<SearchResponse>() {
+            @Override
+            public void onResponse(SearchResponse response) {
+                chain.execute(params, listener, requestMap, paramMap);
             }
         };
+
+        final OnFailureListener failureListener = new OnFailureListener() {
+            @Override
+            public void onFailure(Throwable t) {
+                final List<Throwable> errorList = getErrorList(paramMap);
+                if (errorList.size() >= maxRetryCount) {
+                    listener.onError(t);
+                } else {
+                    errorList.add(t);
+                    doPreferenceIndexExists(params, listener, requestMap, paramMap,
+                            chain);
+                }
+            }
+        };
+
         client.prepareIndex(index, type).setSource(rootObj)
                 .execute(on(responseListener, failureListener));
     }
@@ -128,8 +136,12 @@ public class PreferenceRequestHandler extends DefaultRequestHandler {
             } else {
                 sleep(e);
                 errorList.add(e);
-                fork(() -> execute(params, listener, requestMap, paramMap,
-                        chain));
+                fork(new Runnable() {
+                    @Override
+                    public void run() {
+                        execute(params, listener, requestMap, paramMap, chain);
+                    }
+                });
             }
         } finally {
             indexCreationLock.unlock();
@@ -152,8 +164,12 @@ public class PreferenceRequestHandler extends DefaultRequestHandler {
                         "Failed to create " + index));
             }
         } catch (final IndexAlreadyExistsException e) {
-            fork(() -> doPreferenceIndexExists(params, listener, requestMap,
-                    paramMap, chain));
+            fork(new Runnable() {
+                @Override
+                public void run() {
+                    doPreferenceIndexExists(params, listener, requestMap, paramMap, chain);
+                }
+            });
         } catch (final Exception e) {
             final List<Throwable> errorList = getErrorList(paramMap);
             if (errorList.size() >= maxRetryCount) {
@@ -161,8 +177,12 @@ public class PreferenceRequestHandler extends DefaultRequestHandler {
             } else {
                 sleep(e);
                 errorList.add(e);
-                fork(() -> execute(params, listener, requestMap, paramMap,
-                        chain));
+                fork(new Runnable() {
+                    @Override
+                    public void run() {
+                        execute(params, listener, requestMap, paramMap, chain);
+                    }
+                });
             }
         }
     }
@@ -236,8 +256,12 @@ public class PreferenceRequestHandler extends DefaultRequestHandler {
                     .preparePutMapping(index).setType(type).setSource(builder)
                     .execute().actionGet();
             if (mappingResponse.isAcknowledged()) {
-                fork(() -> execute(params, listener, requestMap, paramMap,
-                        chain));
+                fork(new Runnable() {
+                    @Override
+                    public void run() {
+                        execute(params, listener, requestMap, paramMap, chain);
+                    }
+                });
             } else {
                 listener.onError(new OperationFailedException(
                         "Failed to create mapping for " + index + "/" + type));
