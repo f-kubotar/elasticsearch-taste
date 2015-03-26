@@ -406,7 +406,9 @@ public class GenTermValuesHandler extends ActionHandler {
                     processEvent(eventMapQueue, genTVGate);
                 }
             };
-            new RequestHandlerChain(handlers).execute(eventParams, errorListener, eventMap, new HashMap<>());
+            // 
+            // new RequestHandlerChain(handlers).execute(eventParams, errorListener, eventMap, new HashMap<>());
+            new RequestHandlerChain(handlers).execute(eventParams, errorListener, eventMap, new HashMap<String, Object>());
         }
 
         @Override

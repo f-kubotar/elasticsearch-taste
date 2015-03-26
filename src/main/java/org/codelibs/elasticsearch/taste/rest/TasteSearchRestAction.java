@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Callable;
 
 import org.codelibs.elasticsearch.taste.TasteConstants;
 import org.codelibs.elasticsearch.taste.exception.NotFoundException;
@@ -82,7 +83,7 @@ public class TasteSearchRestAction extends BaseRestHandler {
 
         final OnResponseListener<SearchResponse> responseListener = new OnResponseListener<SearchResponse>() {
             @Override
-            public void onResponse(Response searchResponse) {
+            public void onResponse(SearchResponse searchResponse) {
                 final SearchHits hits = searchResponse.getHits();
                 if (hits.totalHits() == 0) {
                     onError(channel,
@@ -127,7 +128,7 @@ public class TasteSearchRestAction extends BaseRestHandler {
 
         final OnResponseListener<SearchResponse> responseListener = new OnResponseListener<SearchResponse>() {
             @Override
-            public void onResponse(Response response) {
+            public void onResponse(SearchResponse response) {
                 final SearchHits hits = response.getHits();
                 if (hits.totalHits() == 0) {
                     onError(channel,
@@ -246,13 +247,16 @@ public class TasteSearchRestAction extends BaseRestHandler {
             final String prefix, final String index, final String type,
             final String id) {
         try {
-            return cache.get(prefix + id, () -> {
-                final GetResponse response = client.prepareGet(index, type, id)
-                        .execute().actionGet();
-                if (response.isExists()) {
-                    return response.getSource();
+            return cache.get(prefix + id, new Callable<Map<String, Object>>() {
+                @Override
+                public Map<String, Object> call() {
+                    final GetResponse response = client.prepareGet(index, type, id)
+                            .execute().actionGet();
+                    if (response.isExists()) {
+                        return response.getSource();
+                    }
+                    return null;
                 }
-                return null;
             });
         } catch (final ExecutionException e) {
             throw new TasteException("Failed to get data for " + index + "/"
