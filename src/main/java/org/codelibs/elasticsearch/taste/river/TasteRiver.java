@@ -90,19 +90,22 @@ public class TasteRiver extends AbstractRiverComponent implements River {
 
     protected void startRiverThread(final ActionHandler handler) {
         final String name = RIVER_THREAD_NAME_PREFIX + riverName.name();
-        riverThread = new Thread(() -> {
-            try {
-                handler.execute();
-            } catch (final Exception e) {
-                logger.error("River {} is failed.", e, riverName.name(), e);
-            } finally {
+        riverThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
                 try {
-                    RiverUtils.delete(client, riverName);
-                    logger.info("Deleted " + riverName.name() + "river.");
+                    handler.execute();
                 } catch (final Exception e) {
-                    logger.warn("Failed to delete " + riverName.name(), e);
+                    logger.error("River {} is failed.", e, riverName.name(), e);
                 } finally {
-                    handler.close();
+                    try {
+                        RiverUtils.delete(client, riverName);
+                        logger.info("Deleted " + riverName.name() + "river.");
+                    } catch (final Exception e) {
+                        logger.warn("Failed to delete " + riverName.name(), e);
+                    } finally {
+                        handler.close();
+                    }
                 }
             }
         }, name);

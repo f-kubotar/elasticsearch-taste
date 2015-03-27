@@ -12,6 +12,7 @@ import org.codelibs.elasticsearch.taste.rest.handler.RequestHandler;
 import org.codelibs.elasticsearch.taste.rest.handler.RequestHandlerChain;
 import org.codelibs.elasticsearch.taste.rest.handler.UserRequestHandler;
 import org.elasticsearch.client.Client;
+import org.elasticsearch.common.xcontent.ToXContent.Params;
 import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.xcontent.XContentBuilder;
@@ -93,7 +94,7 @@ public class TasteEventRestAction extends BaseRestHandler {
     private RequestHandler createAcknowledgedHandler(final RestChannel channel) {
         return new RequestHandler() {
             @Override
-            void execute(Params params, RequestHandler.OnErrorListener listener,
+            public void execute(Params request, RequestHandler.OnErrorListener listener,
                          Map<String, Object> requestMap, Map<String, Object> paramMap,
                          RequestHandlerChain chain) {
                 try {
@@ -121,7 +122,7 @@ public class TasteEventRestAction extends BaseRestHandler {
             final RestChannel channel) {
         return new RequestHandler.OnErrorListener() {
             @Override
-            void onError(Throwable t) {
+            public void onError(Throwable t) {
                 try {
                     channel.sendResponse(new BytesRestResponse(channel, t));
                 } catch (final Exception e) {

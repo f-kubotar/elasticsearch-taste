@@ -76,51 +76,58 @@ public class ItemRequestHandler extends DefaultRequestHandler {
         }
 
         try {
-            final OnResponseListener<SearchResponse> responseListener = response -> {
-                validateRespose(response);
-                final String updateType = params.param("update");
+            final OnResponseListener<SearchResponse> responseListener = new OnResponseListener<SearchResponse>() {
+                @Override
+                public void onResponse(SearchResponse response) {
+                    validateRespose(response);
+                    final String updateType = params.param("update");
 
-                final SearchHits hits = response.getHits();
-                if (hits.getTotalHits() == 0) {
-                    doItemCreation(params, listener, requestMap, paramMap,
-                            itemMap, index, itemType, itemIdField,
-                            timestampField, chain);
-                } else {
-                    final SearchHit[] searchHits = hits.getHits();
-                    final SearchHitField field = searchHits[0].getFields().get(
-                            itemIdField);
-                    if (field != null) {
-                        final Number itemId = field.getValue();
-                        if (itemId != null) {
-                            if (TasteConstants.TRUE
-                                    .equalsIgnoreCase(updateType)
-                                    || TasteConstants.YES
-                                            .equalsIgnoreCase(updateType)) {
-                                doItemUpdate(params, listener, requestMap,
-                                        paramMap, itemMap, index, itemType,
-                                        itemIdField, timestampField,
-                                        itemId.longValue(), OpType.INDEX, chain);
-                            } else {
-                                paramMap.put(itemIdField, itemId.longValue());
-                                chain.execute(params, listener, requestMap,
-                                        paramMap);
+                    final SearchHits hits = response.getHits();
+                    if (hits.getTotalHits() == 0) {
+                        doItemCreation(params, listener, requestMap, paramMap,
+                                itemMap, index, itemType, itemIdField,
+                                timestampField, chain);
+                    } else {
+                        final SearchHit[] searchHits = hits.getHits();
+                        final SearchHitField field = searchHits[0].getFields().get(
+                                itemIdField);
+                        if (field != null) {
+                            final Number itemId = field.getValue();
+                            if (itemId != null) {
+                                if (TasteConstants.TRUE
+                                        .equalsIgnoreCase(updateType)
+                                        || TasteConstants.YES
+                                                .equalsIgnoreCase(updateType)) {
+                                    doItemUpdate(params, listener, requestMap,
+                                            paramMap, itemMap, index, itemType,
+                                            itemIdField, timestampField,
+                                            itemId.longValue(), OpType.INDEX, chain);
+                                } else {
+                                    paramMap.put(itemIdField, itemId.longValue());
+                                    chain.execute(params, listener, requestMap,
+                                            paramMap);
+                                }
+                                return;
                             }
-                            return;
                         }
+                        throw new OperationFailedException("Item does not have "
+                                + itemIdField + ": " + searchHits[0]);
                     }
-                    throw new OperationFailedException("Item does not have "
-                            + itemIdField + ": " + searchHits[0]);
                 }
             };
-            final OnFailureListener failureListener = t -> {
-                final List<Throwable> errorList = getErrorList(paramMap);
-                if (errorList.size() >= maxRetryCount) {
-                    listener.onError(t);
-                } else {
-                    sleep(t);
-                    errorList.add(t);
-                    doItemIndexExists(params, listener, requestMap, paramMap,
-                            chain);
+
+            final OnFailureListener failureListener = new OnFailureListener() {
+                @Override
+                public void onFailure(Throwable t) {
+                    final List<Throwable> errorList = getErrorList(paramMap);
+                    if (errorList.size() >= maxRetryCount) {
+                        listener.onError(t);
+                    } else {
+                        sleep(t);
+                        errorList.add(t);
+                        doItemIndexExists(params, listener, requestMap, paramMap,
+                                chain);
+                    }
                 }
             };
             client.prepareSearch(index).setTypes(itemType)
@@ -135,8 +142,12 @@ public class ItemRequestHandler extends DefaultRequestHandler {
             } else {
                 sleep(e);
                 errorList.add(e);
-                fork(() -> execute(params, listener, requestMap, paramMap,
-                        chain));
+                fork(new Runnable() {
+                    @Override
+                    public void run() {
+                        execute(params, listener, requestMap, paramMap, chain);
+                    }
+                });
             }
         }
     }
@@ -166,8 +177,12 @@ public class ItemRequestHandler extends DefaultRequestHandler {
             } else {
                 sleep(e);
                 errorList.add(e);
-                fork(() -> execute(params, listener, requestMap, paramMap,
-                        chain));
+                fork(new Runnable() {
+                    @Override
+                    public void run() {
+                        execute(params, listener, requestMap, paramMap, chain);
+                    }
+                });
             }
         } finally {
             indexCreationLock.unlock();
@@ -190,8 +205,12 @@ public class ItemRequestHandler extends DefaultRequestHandler {
                         "Failed to create " + index));
             }
         } catch (final IndexAlreadyExistsException e) {
-            fork(() -> doItemIndexExists(params, listener, requestMap,
-                    paramMap, chain));
+            fork(new Runnable() {
+                @Override
+                public void run() {
+                    doItemIndexExists(params, listener, requestMap, paramMap, chain);
+                }
+            });
         } catch (final Exception e) {
             final List<Throwable> errorList = getErrorList(paramMap);
             if (errorList.size() >= maxRetryCount) {
@@ -199,8 +218,12 @@ public class ItemRequestHandler extends DefaultRequestHandler {
             } else {
                 sleep(e);
                 errorList.add(e);
-                fork(() -> execute(params, listener, requestMap, paramMap,
-                        chain));
+                fork(new Runnable() {
+                    @Override
+                    public void run() {
+                        execute(params, listener, requestMap, paramMap, chain);
+                    }
+                });
             }
         }
     }
@@ -266,8 +289,12 @@ public class ItemRequestHandler extends DefaultRequestHandler {
                     .preparePutMapping(index).setType(type).setSource(builder)
                     .execute().actionGet();
             if (mappingResponse.isAcknowledged()) {
-                fork(() -> execute(params, listener, requestMap, paramMap,
-                        chain));
+                fork(new Runnable() {
+                    @Override
+                    public void run() {
+                        execute(params, listener, requestMap, paramMap, chain);
+                    }
+                });
             } else {
                 listener.onError(new OperationFailedException(
                         "Failed to create mapping for " + index + "/" + type));
@@ -284,37 +311,44 @@ public class ItemRequestHandler extends DefaultRequestHandler {
             final Map<String, Object> itemMap, final String index,
             final String type, final String itemIdField,
             final String timestampField, final RequestHandlerChain chain) {
-        final OnResponseListener<SearchResponse> responseListener = response -> {
-            validateRespose(response);
+        final OnResponseListener<SearchResponse> responseListener = new OnResponseListener<SearchResponse>() {
+            @Override
+            public void onResponse(SearchResponse response) {
+                validateRespose(response);
 
-            Number currentId = null;
-            final SearchHits hits = response.getHits();
-            if (hits.getTotalHits() != 0) {
-                final SearchHit[] searchHits = hits.getHits();
-                final SearchHitField field = searchHits[0].getFields().get(
-                        itemIdField);
-                if (field != null) {
-                    currentId = field.getValue();
+                Number currentId = null;
+                final SearchHits hits = response.getHits();
+                if (hits.getTotalHits() != 0) {
+                    final SearchHit[] searchHits = hits.getHits();
+                    final SearchHitField field = searchHits[0].getFields().get(
+                            itemIdField);
+                    if (field != null) {
+                        currentId = field.getValue();
+                    }
                 }
+                final Long itemId;
+                if (currentId == null) {
+                    itemId = Long.valueOf(1);
+                } else {
+                    itemId = Long.valueOf(currentId.longValue() + 1);
+                }
+                doItemUpdate(params, listener, requestMap, paramMap, itemMap,
+                        index, type, itemIdField, timestampField, itemId,
+                        OpType.CREATE, chain);
             }
-            final Long itemId;
-            if (currentId == null) {
-                itemId = Long.valueOf(1);
-            } else {
-                itemId = Long.valueOf(currentId.longValue() + 1);
-            }
-            doItemUpdate(params, listener, requestMap, paramMap, itemMap,
-                    index, type, itemIdField, timestampField, itemId,
-                    OpType.CREATE, chain);
         };
-        final OnFailureListener failureListener = t -> {
-            final List<Throwable> errorList = getErrorList(paramMap);
-            if (errorList.size() >= maxRetryCount) {
-                listener.onError(t);
-            } else {
-                sleep(t);
-                errorList.add(t);
-                execute(params, listener, requestMap, paramMap, chain);
+
+        final OnFailureListener failureListener = new OnFailureListener() {
+            @Override
+            public void onFailure(Throwable t) {
+                final List<Throwable> errorList = getErrorList(paramMap);
+                if (errorList.size() >= maxRetryCount) {
+                    listener.onError(t);
+                } else {
+                    sleep(t);
+                    errorList.add(t);
+                    execute(params, listener, requestMap, paramMap, chain);
+                }
             }
         };
         client.prepareSearch(index).setTypes(type)
@@ -333,17 +367,24 @@ public class ItemRequestHandler extends DefaultRequestHandler {
             final OpType opType, final RequestHandlerChain chain) {
         itemMap.put(itemIdField, itemId);
         itemMap.put(timestampField, new Date());
-        final OnResponseListener<IndexResponse> responseListener = response -> {
-            paramMap.put(itemIdField, itemId);
-            chain.execute(params, listener, requestMap, paramMap);
+        final OnResponseListener<SearchResponse> responseListener = new OnResponseListener<SearchResponse>() {
+            @Override
+            public void onResponse(SearchResponse response) {
+                paramMap.put(itemIdField, itemId);
+                chain.execute(params, listener, requestMap, paramMap);
+            }
         };
-        final OnFailureListener failureListener = t -> {
-            sleep(t);
-            if (t instanceof DocumentAlreadyExistsException
-                    || t instanceof EsRejectedExecutionException) {
-                execute(params, listener, requestMap, paramMap, chain);
-            } else {
-                listener.onError(t);
+
+        final OnFailureListener failureListener = new OnFailureListener() {
+            @Override
+            public void onFailure(Throwable t) {
+                sleep(t);
+                if (t instanceof DocumentAlreadyExistsException
+                        || t instanceof EsRejectedExecutionException) {
+                    execute(params, listener, requestMap, paramMap, chain);
+                } else {
+                    listener.onError(t);
+                }
             }
         };
         client.prepareIndex(index, type, itemId.toString()).setSource(itemMap)

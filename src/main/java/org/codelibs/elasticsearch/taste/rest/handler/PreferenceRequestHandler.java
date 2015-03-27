@@ -87,9 +87,9 @@ public class PreferenceRequestHandler extends DefaultRequestHandler {
         rootObj.put(itemIdField, itemId);
         rootObj.put(valueField, value);
         rootObj.put(timestampField, timestamp);
-        final OnResponseListener<SearchResponse> responseListener = new OnResponseListener<SearchResponse>() {
+        final OnResponseListener<IndexResponse> responseListener = new OnResponseListener<IndexResponse>() {
             @Override
-            public void onResponse(SearchResponse response) {
+            public void onResponse(IndexResponse response) {
                 chain.execute(params, listener, requestMap, paramMap);
             }
         };

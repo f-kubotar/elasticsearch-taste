@@ -368,9 +368,9 @@ public class UserRequestHandler extends DefaultRequestHandler {
         userMap.put(userIdField, userId);
         userMap.put(timestampField, new Date());
 
-        final OnResponseListener<SearchResponse> responseListener = new OnResponseListener<SearchResponse>() {
+        final OnResponseListener<IndexResponse> responseListener = new OnResponseListener<IndexResponse>() {
             @Override
-            public void onResponse(SearchResponse searchResponse) {
+            public void onResponse(IndexResponse response) {
                 paramMap.put(userIdField, userId);
                 chain.execute(params, listener, requestMap, paramMap);
             }
