@@ -26,6 +26,8 @@ public abstract class DefaultRequestHandler implements RequestHandler {
 
     protected static Random random = new Random();
 
+    protected static ForkJoinPool forkJoinPool = new ForkJoinPool();
+
     protected Settings settings;
 
     protected Client client;
@@ -87,7 +89,7 @@ public abstract class DefaultRequestHandler implements RequestHandler {
     }
 
     protected void fork(final Runnable task) {
-        ForkJoinPool.commonPool().execute(task);
+        forkJoinPool.execute(task);
     }
 
     /* (non-Javadoc)

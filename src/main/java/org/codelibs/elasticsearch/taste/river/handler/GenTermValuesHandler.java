@@ -48,6 +48,8 @@ import org.elasticsearch.search.SearchHitField;
 import org.elasticsearch.search.SearchHits;
 
 public class GenTermValuesHandler extends ActionHandler {
+    protected static ForkJoinPool forkJoinPool = new ForkJoinPool();
+
     private Number keepAlive;
 
     private String sourceIndex;
@@ -364,7 +366,7 @@ public class GenTermValuesHandler extends ActionHandler {
 
                 final CountDownLatch genTVGate = new CountDownLatch(numOfThread);
                 for (int i = 0; i < numOfThread; i++) {
-                    ForkJoinPool.commonPool().execute(new Runnable() {
+                    forkJoinPool.execute(new Runnable() {
                         @Override
                         public void run() {
                             processEvent(eventMapQueue, genTVGate);

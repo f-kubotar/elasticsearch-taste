@@ -367,9 +367,9 @@ public class ItemRequestHandler extends DefaultRequestHandler {
             final OpType opType, final RequestHandlerChain chain) {
         itemMap.put(itemIdField, itemId);
         itemMap.put(timestampField, new Date());
-        final OnResponseListener<SearchResponse> responseListener = new OnResponseListener<SearchResponse>() {
+        final OnResponseListener<IndexResponse> responseListener = new OnResponseListener<IndexResponse>() {
             @Override
-            public void onResponse(SearchResponse response) {
+            public void onResponse(IndexResponse response) {
                 paramMap.put(itemIdField, itemId);
                 chain.execute(params, listener, requestMap, paramMap);
             }
