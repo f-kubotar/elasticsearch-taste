@@ -48,6 +48,8 @@ import org.elasticsearch.search.SearchHitField;
 import org.elasticsearch.search.SearchHits;
 
 public class GenTermValuesHandler extends ActionHandler {
+    protected static ForkJoinPool forkJoinPool = new ForkJoinPool();
+
     private Number keepAlive;
 
     private String sourceIndex;
@@ -364,8 +366,12 @@ public class GenTermValuesHandler extends ActionHandler {
 
                 final CountDownLatch genTVGate = new CountDownLatch(numOfThread);
                 for (int i = 0; i < numOfThread; i++) {
-                    ForkJoinPool.commonPool().execute(
-                            () -> processEvent(eventMapQueue, genTVGate));
+                    forkJoinPool.execute(new Runnable() {
+                        @Override
+                        public void run() {
+                            processEvent(eventMapQueue, genTVGate);
+                        }
+                    });
                 }
                 gateList.add(genTVGate);
             } finally {
@@ -385,12 +391,26 @@ public class GenTermValuesHandler extends ActionHandler {
             for (int i = 0; i < requestHandlers.length; i++) {
                 handlers[i] = requestHandlers[i];
             }
-            handlers[requestHandlers.length] = (params, listener, requestMap,
-                    paramMap, chain) -> processEvent(eventMapQueue, genTVGate);
-            new RequestHandlerChain(handlers).execute(eventParams, t -> {
-                logger.error("Failed to store: " + eventMap, t);
-                processEvent(eventMapQueue, genTVGate);
-            }, eventMap, new HashMap<>());
+            handlers[requestHandlers.length] = new RequestHandler() {
+                @Override
+                public void execute(Params params,
+                                    RequestHandler.OnErrorListener listener,
+                                    Map<String, Object> requestMap,
+                                    Map<String, Object> paramMap,
+                                    RequestHandlerChain chain) {
+                    processEvent(eventMapQueue, genTVGate);
+                }
+            };
+            final RequestHandler.OnErrorListener errorListener = new RequestHandler.OnErrorListener() {
+                @Override
+                public void onError(Throwable t) {
+                    logger.error("Failed to store: " + eventMap, t);
+                    processEvent(eventMapQueue, genTVGate);
+                }
+            };
+            // 
+            // new RequestHandlerChain(handlers).execute(eventParams, errorListener, eventMap, new HashMap<>());
+            new RequestHandlerChain(handlers).execute(eventParams, errorListener, eventMap, new HashMap<String, Object>());
         }
 
         @Override

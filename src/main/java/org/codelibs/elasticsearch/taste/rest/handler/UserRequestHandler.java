@@ -77,52 +77,58 @@ public class UserRequestHandler extends DefaultRequestHandler {
         }
 
         try {
-            final OnResponseListener<SearchResponse> responseListener = response -> {
-                validateRespose(response);
-                final String updateType = params.param("update");
+            final OnResponseListener<SearchResponse> responseListener = new OnResponseListener<SearchResponse>() {
+                @Override
+                public void onResponse(SearchResponse response) {
+                    validateRespose(response);
+                    final String updateType = params.param("update");
 
-                final SearchHits hits = response.getHits();
-                if (hits.getTotalHits() == 0) {
-                    doUserCreation(params, listener, requestMap, paramMap,
-                            userMap, index, userType, userIdField,
-                            timestampField, chain);
-                } else {
-                    final SearchHit[] searchHits = hits.getHits();
-                    final SearchHitField field = searchHits[0].getFields().get(
-                            userIdField);
-                    if (field != null) {
-                        final Number userId = field.getValue();
-                        if (userId != null) {
-                            if (TasteConstants.TRUE
-                                    .equalsIgnoreCase(updateType)
-                                    || TasteConstants.YES
-                                            .equalsIgnoreCase(updateType)) {
-                                doUserUpdate(params, listener, requestMap,
-                                        paramMap, userMap, index, userType,
-                                        userIdField, timestampField,
-                                        userId.longValue(), OpType.INDEX, chain);
+                    final SearchHits hits = response.getHits();
+                    if (hits.getTotalHits() == 0) {
+                        doUserCreation(params, listener, requestMap, paramMap,
+                                userMap, index, userType, userIdField,
+                                timestampField, chain);
+                    } else {
+                        final SearchHit[] searchHits = hits.getHits();
+                        final SearchHitField field = searchHits[0].getFields().get(
+                                userIdField);
+                        if (field != null) {
+                            final Number userId = field.getValue();
+                            if (userId != null) {
+                                if (TasteConstants.TRUE
+                                        .equalsIgnoreCase(updateType)
+                                        || TasteConstants.YES
+                                                .equalsIgnoreCase(updateType)) {
+                                    doUserUpdate(params, listener, requestMap,
+                                            paramMap, userMap, index, userType,
+                                            userIdField, timestampField,
+                                            userId.longValue(), OpType.INDEX, chain);
 
-                            } else {
-                                paramMap.put(userIdField, userId.longValue());
-                                chain.execute(params, listener, requestMap,
-                                        paramMap);
+                                } else {
+                                    paramMap.put(userIdField, userId.longValue());
+                                    chain.execute(params, listener, requestMap,
+                                            paramMap);
+                                }
+                                return;
                             }
-                            return;
                         }
+                        throw new OperationFailedException("User does not have "
+                                + userIdField + ": " + searchHits[0]);
                     }
-                    throw new OperationFailedException("User does not have "
-                            + userIdField + ": " + searchHits[0]);
                 }
             };
-            final OnFailureListener failureListener = t -> {
-                final List<Throwable> errorList = getErrorList(paramMap);
-                if (errorList.size() >= maxRetryCount) {
-                    listener.onError(t);
-                } else {
-                    sleep(t);
-                    errorList.add(t);
-                    doUserIndexExists(params, listener, requestMap, paramMap,
-                            chain);
+            final OnFailureListener failureListener = new OnFailureListener() {
+                @Override
+                public void onFailure(Throwable t) {
+                    final List<Throwable> errorList = getErrorList(paramMap);
+                    if (errorList.size() >= maxRetryCount) {
+                        listener.onError(t);
+                    } else {
+                        sleep(t);
+                        errorList.add(t);
+                        doUserIndexExists(params, listener, requestMap, paramMap,
+                                chain);
+                    }
                 }
             };
             client.prepareSearch(index).setTypes(userType)
@@ -138,8 +144,12 @@ public class UserRequestHandler extends DefaultRequestHandler {
             } else {
                 sleep(e);
                 errorList.add(e);
-                fork(() -> execute(params, listener, requestMap, paramMap,
-                        chain));
+                fork(new Runnable() {
+                    @Override
+                    public void run() {
+                        execute(params, listener, requestMap, paramMap, chain);
+                    }
+                });
             }
         }
     }
@@ -169,8 +179,12 @@ public class UserRequestHandler extends DefaultRequestHandler {
             } else {
                 sleep(e);
                 errorList.add(e);
-                fork(() -> execute(params, listener, requestMap, paramMap,
-                        chain));
+                fork(new Runnable() {
+                    @Override
+                    public void run() {
+                        execute(params, listener, requestMap, paramMap, chain);
+                    }
+                });
             }
         } finally {
             indexCreationLock.unlock();
@@ -193,8 +207,12 @@ public class UserRequestHandler extends DefaultRequestHandler {
                         "Failed to create " + index));
             }
         } catch (final IndexAlreadyExistsException e) {
-            fork(() -> doUserIndexExists(params, listener, requestMap,
-                    paramMap, chain));
+            fork(new Runnable() {
+                @Override
+                public void run() {
+                    doUserIndexExists(params, listener, requestMap, paramMap, chain);
+                }
+            });
         } catch (final Exception e) {
             final List<Throwable> errorList = getErrorList(paramMap);
             if (errorList.size() >= maxRetryCount) {
@@ -202,8 +220,12 @@ public class UserRequestHandler extends DefaultRequestHandler {
             } else {
                 sleep(e);
                 errorList.add(e);
-                fork(() -> execute(params, listener, requestMap, paramMap,
-                        chain));
+                fork(new Runnable() {
+                    @Override
+                    public void run() {
+                        execute(params, listener, requestMap, paramMap, chain);
+                    }
+                });
             }
         }
     }
@@ -269,8 +291,12 @@ public class UserRequestHandler extends DefaultRequestHandler {
                     .preparePutMapping(index).setType(type).setSource(builder)
                     .execute().actionGet();
             if (mappingResponse.isAcknowledged()) {
-                fork(() -> execute(params, listener, requestMap, paramMap,
-                        chain));
+                fork(new Runnable() {
+                    @Override
+                    public void run() {
+                        execute(params, listener, requestMap, paramMap, chain);
+                    }
+                });
             } else {
                 listener.onError(new OperationFailedException(
                         "Failed to create mapping for " + index + "/" + type));
@@ -281,42 +307,48 @@ public class UserRequestHandler extends DefaultRequestHandler {
     }
 
     private void doUserCreation(final Params params,
-            final RequestHandler.OnErrorListener listener,
-            final Map<String, Object> requestMap,
-            final Map<String, Object> paramMap,
-            final Map<String, Object> userMap, final String index,
-            final String type, final String userIdField,
-            final String timestampField, final RequestHandlerChain chain) {
-        final OnResponseListener<SearchResponse> responseListener = response -> {
-            validateRespose(response);
+        final RequestHandler.OnErrorListener listener,
+        final Map<String, Object> requestMap,
+        final Map<String, Object> paramMap,
+        final Map<String, Object> userMap, final String index,
+        final String type, final String userIdField,
+        final String timestampField, final RequestHandlerChain chain) {
+        final OnResponseListener<SearchResponse> responseListener = new OnResponseListener<SearchResponse>() {
+            @Override
+            public void onResponse(SearchResponse response) {
+                validateRespose(response);
 
-            Number currentId = null;
-            final SearchHits hits = response.getHits();
-            if (hits.getTotalHits() != 0) {
-                final SearchHit[] searchHits = hits.getHits();
-                final SearchHitField field = searchHits[0].getFields().get(
-                        userIdField);
-                if (field != null) {
-                    currentId = field.getValue();
+                Number currentId = null;
+                final SearchHits hits = response.getHits();
+                if (hits.getTotalHits() != 0) {
+                    final SearchHit[] searchHits = hits.getHits();
+                    final SearchHitField field = searchHits[0].getFields().get(
+                            userIdField);
+                    if (field != null) {
+                        currentId = field.getValue();
+                    }
                 }
+                final Long userId;
+                if (currentId == null) {
+                    userId = Long.valueOf(1);
+                } else {
+                    userId = Long.valueOf(currentId.longValue() + 1);
+                }
+                doUserUpdate(params, listener, requestMap, paramMap, userMap,
+                        index, type, userIdField, timestampField, userId,
+                        OpType.CREATE, chain);
             }
-            final Long userId;
-            if (currentId == null) {
-                userId = Long.valueOf(1);
-            } else {
-                userId = Long.valueOf(currentId.longValue() + 1);
-            }
-            doUserUpdate(params, listener, requestMap, paramMap, userMap,
-                    index, type, userIdField, timestampField, userId,
-                    OpType.CREATE, chain);
         };
-        final OnFailureListener failureListener = t -> {
-            final List<Throwable> errorList = getErrorList(paramMap);
-            if (errorList.size() >= maxRetryCount) {
-                listener.onError(t);
-            } else {
-                sleep(t);
-                execute(params, listener, requestMap, paramMap, chain);
+        final OnFailureListener failureListener = new OnFailureListener() {
+            @Override
+            public void onFailure(Throwable t) {
+                final List<Throwable> errorList = getErrorList(paramMap);
+                if (errorList.size() >= maxRetryCount) {
+                    listener.onError(t);
+                } else {
+                    sleep(t);
+                    execute(params, listener, requestMap, paramMap, chain);
+                }
             }
         };
         client.prepareSearch(index).setTypes(type)
@@ -336,17 +368,24 @@ public class UserRequestHandler extends DefaultRequestHandler {
         userMap.put(userIdField, userId);
         userMap.put(timestampField, new Date());
 
-        final OnResponseListener<IndexResponse> responseListener = response -> {
-            paramMap.put(userIdField, userId);
-            chain.execute(params, listener, requestMap, paramMap);
+        final OnResponseListener<IndexResponse> responseListener = new OnResponseListener<IndexResponse>() {
+            @Override
+            public void onResponse(IndexResponse response) {
+                paramMap.put(userIdField, userId);
+                chain.execute(params, listener, requestMap, paramMap);
+            }
         };
-        final OnFailureListener failureListener = t -> {
-            if (t instanceof DocumentAlreadyExistsException
-                    || t instanceof EsRejectedExecutionException) {
-                sleep(t);
-                execute(params, listener, requestMap, paramMap, chain);
-            } else {
-                listener.onError(t);
+
+        final OnFailureListener failureListener = new OnFailureListener() {
+            @Override
+            public void onFailure(Throwable t) {
+                if (t instanceof DocumentAlreadyExistsException
+                        || t instanceof EsRejectedExecutionException) {
+                    sleep(t);
+                    execute(params, listener, requestMap, paramMap, chain);
+                } else {
+                    listener.onError(t);
+                }
             }
         };
         client.prepareIndex(index, type, userId.toString()).setSource(userMap)

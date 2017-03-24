@@ -10,12 +10,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Callable;
 
 import org.codelibs.elasticsearch.taste.TasteConstants;
 import org.codelibs.elasticsearch.taste.exception.NotFoundException;
 import org.codelibs.elasticsearch.taste.exception.OperationFailedException;
 import org.codelibs.elasticsearch.taste.exception.TasteException;
 import org.codelibs.elasticsearch.util.action.ListenerUtils.OnResponseListener;
+import org.codelibs.elasticsearch.util.action.ListenerUtils.OnFailureListener;
 import org.codelibs.elasticsearch.util.lang.StringUtils;
 import org.elasticsearch.action.get.GetResponse;
 import org.elasticsearch.action.search.SearchResponse;
@@ -64,7 +66,7 @@ public class TasteSearchRestAction extends BaseRestHandler {
 
     @Override
     protected void handleRequest(final RestRequest request,
-            final RestChannel channel, final Client client) {
+        final RestChannel channel, final Client client) {
 
         final Info info = new Info(request);
 
@@ -79,34 +81,44 @@ public class TasteSearchRestAction extends BaseRestHandler {
             return;
         }
 
-        final OnResponseListener<SearchResponse> responseListener = searchResponse -> {
-            final SearchHits hits = searchResponse.getHits();
-            if (hits.totalHits() == 0) {
-                onError(channel,
-                        new NotFoundException("No " + info.getIdField()
-                                + " data for " + systemId + " in "
-                                + info.getIdIndex() + "/" + info.getIdType()));
-                return;
-            }
-            final SearchHit hit = hits.getHits()[0];
-            final SearchHitField field = hit.field(info.getIdField());
-            final Number targetId = field.getValue();
-            if (targetId == null) {
-                onError(channel,
-                        new NotFoundException("No " + info.getIdField()
-                                + " for " + systemId + " in "
-                                + info.getIdIndex() + "/" + info.getIdType()));
-                return;
-            }
+        final OnResponseListener<SearchResponse> responseListener = new OnResponseListener<SearchResponse>() {
+            @Override
+            public void onResponse(SearchResponse searchResponse) {
+                final SearchHits hits = searchResponse.getHits();
+                if (hits.totalHits() == 0) {
+                    onError(channel,
+                            new NotFoundException("No " + info.getIdField()
+                                    + " data for " + systemId + " in "
+                                    + info.getIdIndex() + "/" + info.getIdType()));
+                    return;
+                }
+                final SearchHit hit = hits.getHits()[0];
+                final SearchHitField field = hit.field(info.getIdField());
+                final Number targetId = field.getValue();
+                if (targetId == null) {
+                    onError(channel,
+                            new NotFoundException("No " + info.getIdField()
+                                    + " for " + systemId + " in "
+                                    + info.getIdIndex() + "/" + info.getIdType()));
+                    return;
+                }
 
-            doSearchRequest(request, channel, client, info,
-                    targetId.longValue());
+                doSearchRequest(request, channel, client, info,
+                        targetId.longValue());
+            }
+        };
+
+        final OnFailureListener failureListener = new OnFailureListener() {
+            @Override
+            public void onFailure(Throwable t) {
+                onError(channel, t);
+            }
         };
         client.prepareSearch(info.getIdIndex()).setTypes(info.getIdType())
                 .setQuery(QueryBuilders.termQuery("system_id", systemId))
                 .addField(info.getIdField())
                 .addSort(info.getTimestampField(), SortOrder.DESC)
-                .execute(on(responseListener, t -> onError(channel, t)));
+                .execute(on(responseListener, failureListener));
 
     }
 
@@ -114,58 +126,69 @@ public class TasteSearchRestAction extends BaseRestHandler {
             final RestChannel channel, final Client client, final Info info,
             final long targetId) {
 
-        final OnResponseListener<SearchResponse> responseListener = response -> {
-            final SearchHits hits = response.getHits();
-            if (hits.totalHits() == 0) {
-                onError(channel,
-                        new NotFoundException("No ID for " + targetId + " in "
-                                + info.getTargetIndex() + "/"
-                                + info.getTargetType()));
-                return;
-            }
-
-            try {
-                final XContentBuilder builder = jsonBuilder();
-                final String pretty = request.param("pretty");
-                if (pretty != null && !"false".equalsIgnoreCase(pretty)) {
-                    builder.prettyPrint().lfAtEnd();
+        final OnResponseListener<SearchResponse> responseListener = new OnResponseListener<SearchResponse>() {
+            @Override
+            public void onResponse(SearchResponse response) {
+                final SearchHits hits = response.getHits();
+                if (hits.totalHits() == 0) {
+                    onError(channel,
+                            new NotFoundException("No ID for " + targetId + " in "
+                                    + info.getTargetIndex() + "/"
+                                    + info.getTargetType()));
+                    return;
                 }
-                builder.startObject()//
-                        .field("took", response.getTookInMillis())//
-                        .field("timed_out", response.isTimedOut())//
-                        .startObject("_shards")//
-                        .field("total", response.getTotalShards())//
-                        .field("successful", response.getSuccessfulShards())//
-                        .field("failed", response.getFailedShards())//
-                        .endObject()//
-                        .startObject("hits")//
-                        .field("total", hits.getTotalHits())//
-                        .field("max_score", hits.getMaxScore())//
-                        .startArray("hits");
 
-                for (final SearchHit hit : hits.getHits()) {
-                    final Map<String, Object> source = expandObjects(client,
-                            hit.getSource(), info);
+                try {
+                    final XContentBuilder builder = jsonBuilder();
+                    final String pretty = request.param("pretty");
+                    if (pretty != null && !"false".equalsIgnoreCase(pretty)) {
+                        builder.prettyPrint().lfAtEnd();
+                    }
                     builder.startObject()//
-                            .field("_index", hit.getIndex())//
-                            .field("_type", hit.getType())//
-                            .field("_id", hit.getId())//
-                            .field("_score", hit.getScore())//
-                            .field("_source", source)//
-                            .endObject();//
+                            .field("took", response.getTookInMillis())//
+                            .field("timed_out", response.isTimedOut())//
+                            .startObject("_shards")//
+                            .field("total", response.getTotalShards())//
+                            .field("successful", response.getSuccessfulShards())//
+                            .field("failed", response.getFailedShards())//
+                            .endObject()//
+                            .startObject("hits")//
+                            .field("total", hits.getTotalHits())//
+                            .field("max_score", hits.getMaxScore())//
+                            .startArray("hits");
+
+                    for (final SearchHit hit : hits.getHits()) {
+                        final Map<String, Object> source = expandObjects(client,
+                                hit.getSource(), info);
+                        builder.startObject()//
+                                .field("_index", hit.getIndex())//
+                                .field("_type", hit.getType())//
+                                .field("_id", hit.getId())//
+                                .field("_score", hit.getScore())//
+                                .field("_source", source)//
+                                .endObject();//
+                    }
+
+                    builder.endArray()//
+                            .endObject()//
+                            .endObject();
+
+                    channel.sendResponse(new BytesRestResponse(RestStatus.OK,
+                            builder));
+                } catch (final IOException e) {
+                    throw new OperationFailedException(
+                            "Failed to build a response.", e);
                 }
-
-                builder.endArray()//
-                        .endObject()//
-                        .endObject();
-
-                channel.sendResponse(new BytesRestResponse(RestStatus.OK,
-                        builder));
-            } catch (final IOException e) {
-                throw new OperationFailedException(
-                        "Failed to build a response.", e);
             }
         };
+
+        final OnFailureListener failureListener = new OnFailureListener() {
+            @Override
+            public void onFailure(Throwable t) {
+                onError(channel, t);
+            }
+        };
+
         client.prepareSearch(info.getTargetIndex())
                 .setTypes(info.getTargetType())
                 .setQuery(
@@ -173,7 +196,7 @@ public class TasteSearchRestAction extends BaseRestHandler {
                                 targetId))
                 .addSort(info.getTimestampField(), SortOrder.DESC)
                 .setSize(info.getSize()).setFrom(info.getFrom())
-                .execute(on(responseListener, t -> onError(channel, t)));
+                .execute(on(responseListener, failureListener));
     }
 
     private Map<String, Object> expandObjects(final Client client,
@@ -224,13 +247,16 @@ public class TasteSearchRestAction extends BaseRestHandler {
             final String prefix, final String index, final String type,
             final String id) {
         try {
-            return cache.get(prefix + id, () -> {
-                final GetResponse response = client.prepareGet(index, type, id)
-                        .execute().actionGet();
-                if (response.isExists()) {
-                    return response.getSource();
+            return cache.get(prefix + id, new Callable<Map<String, Object>>() {
+                @Override
+                public Map<String, Object> call() {
+                    final GetResponse response = client.prepareGet(index, type, id)
+                            .execute().actionGet();
+                    if (response.isExists()) {
+                        return response.getSource();
+                    }
+                    return null;
                 }
-                return null;
             });
         } catch (final ExecutionException e) {
             throw new TasteException("Failed to get data for " + index + "/"

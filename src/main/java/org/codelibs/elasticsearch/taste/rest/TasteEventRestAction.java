@@ -12,6 +12,7 @@ import org.codelibs.elasticsearch.taste.rest.handler.RequestHandler;
 import org.codelibs.elasticsearch.taste.rest.handler.RequestHandlerChain;
 import org.codelibs.elasticsearch.taste.rest.handler.UserRequestHandler;
 import org.elasticsearch.client.Client;
+import org.elasticsearch.common.xcontent.ToXContent.Params;
 import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.xcontent.XContentBuilder;
@@ -91,22 +92,27 @@ public class TasteEventRestAction extends BaseRestHandler {
     }
 
     private RequestHandler createAcknowledgedHandler(final RestChannel channel) {
-        return (request, listener, requestMap, paramMap, chain) -> {
-            try {
-                final XContentBuilder builder = JsonXContent.contentBuilder();
-                final String pretty = request.param("pretty");
-                if (pretty != null && !"false".equalsIgnoreCase(pretty)) {
-                    builder.prettyPrint().lfAtEnd();
-                }
-                builder.startObject();
-                builder.field("acknowledged", true);
-                builder.endObject();
-                channel.sendResponse(new BytesRestResponse(OK, builder));
-            } catch (final Exception e) {
+        return new RequestHandler() {
+            @Override
+            public void execute(Params request, RequestHandler.OnErrorListener listener,
+                         Map<String, Object> requestMap, Map<String, Object> paramMap,
+                         RequestHandlerChain chain) {
                 try {
-                    channel.sendResponse(new BytesRestResponse(channel, e));
-                } catch (final Exception ex) {
-                    logger.error("Failed to send a failure response.", ex);
+                    final XContentBuilder builder = JsonXContent.contentBuilder();
+                    final String pretty = request.param("pretty");
+                    if (pretty != null && !"false".equalsIgnoreCase(pretty)) {
+                        builder.prettyPrint().lfAtEnd();
+                    }
+                    builder.startObject();
+                    builder.field("acknowledged", true);
+                    builder.endObject();
+                    channel.sendResponse(new BytesRestResponse(OK, builder));
+                } catch (final Exception e) {
+                    try {
+                        channel.sendResponse(new BytesRestResponse(channel, e));
+                    } catch (final Exception ex) {
+                        logger.error("Failed to send a failure response.", ex);
+                    }
                 }
             }
         };
@@ -114,11 +120,14 @@ public class TasteEventRestAction extends BaseRestHandler {
 
     private RequestHandler.OnErrorListener createOnErrorListener(
             final RestChannel channel) {
-        return t -> {
-            try {
-                channel.sendResponse(new BytesRestResponse(channel, t));
-            } catch (final Exception e) {
-                logger.error("Failed to send a failure response.", e);
+        return new RequestHandler.OnErrorListener() {
+            @Override
+            public void onError(Throwable t) {
+                try {
+                    channel.sendResponse(new BytesRestResponse(channel, t));
+                } catch (final Exception e) {
+                    logger.error("Failed to send a failure response.", e);
+                }
             }
         };
     }
